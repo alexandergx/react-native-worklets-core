@@ -8,6 +8,8 @@
 
 #include <jsi/jsi.h>
 
+#include <functional>
+
 namespace RNWorklet {
 
 namespace jsi = facebook::jsi;
@@ -241,8 +243,8 @@ private:
 
   JsiWrapperType _type;
 
-  bool _boolValue;
-  double _numberValue;
+  bool _boolValue = false;
+  double _numberValue = 0.0;
   std::string _stringValue;
 
   size_t _listenerId = 1000;

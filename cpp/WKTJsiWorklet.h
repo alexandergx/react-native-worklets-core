@@ -297,40 +297,44 @@ private:
    * Installs the worklet function into the worklet runtime
    */
   void createWorklet(jsi::Runtime &runtime,
-                     std::shared_ptr<jsi::Function> func) {
-
+                    std::shared_ptr<jsi::Function> func) {
     _isWorklet = false;
     _isRea30Compat = false;
     _code.clear();
     _location.clear();
     _closureWrapper.reset();
 
-    // 1) New style: __initData from worklets-core / Reanimated 3
+    // 1) Try new-style (__initData)
     jsi::Value initDataProp =
         func->getProperty(runtime, PropNameWorkletInitData);
 
     if (initDataProp.isObject()) {
       jsi::Object initDataObj = initDataProp.asObject(runtime);
 
-      // Check location must be a string if it is defined
-      if (!locationProp.isUndefined() && !locationProp.isNull() &&
-          locationProp.isString()) {
-        // Set location
+      // location
+      jsi::Value locationProp =
+          initDataObj.getProperty(runtime, PropNameWorkletInitDataLocation);
+
+      if (locationProp.isString()) {
         _location = locationProp.asString(runtime).utf8(runtime);
       } else {
         _location = "(unknown)";
       }
 
-      // Let us try to install the function in the worklet context
-      _code = initDataProp.asObject(runtime)
-                  .getProperty(runtime, PropNameWorkletInitDataCode)
-                  .asString(runtime)
-                  .utf8(runtime);
+      // code
+      jsi::Value codeProp =
+          initDataObj.getProperty(runtime, PropNameWorkletInitDataCode);
 
+      if (!codeProp.isString()) {
+        // Not a valid worklet
+        return;
+      }
+
+      _code = codeProp.asString(runtime).utf8(runtime);
       _isRea30Compat = true;
 
     } else {
-      // 2) Legacy style: asString / __location
+      // 2) Legacy style (__closure + asString)
       jsi::Value asStringProp =
           func->getProperty(runtime, PropNameWorkletAsString);
       jsi::Value locationProp =
@@ -345,35 +349,29 @@ private:
       _isRea30Compat = false;
     }
 
-    // 3) Validate code length / content, avoid "()" crashes
-    bool isCodeEmpty = true;
-    for (char c : _code) {
-      if (!std::isspace(static_cast<unsigned char>(c))) {
-        isCodeEmpty = false;
-        break;
+    // --- Validate code ---
+    auto isWhitespaceOnly = [](const std::string &s) {
+      for (char c : s) {
+        if (!std::isspace((unsigned char)c))
+          return false;
       }
-    }
-    if (!isCodeEmpty && _code.size() <= 3) {
-      isCodeEmpty = true;
-    }
+      return true;
+    };
 
-    // Double-check if the code property is valid.
-    bool isCodeEmpty = std::all_of(_code.begin(), _code.end(), isWhitespace);
-    if (isCodeEmpty) {
+    bool isEmpty = _code.size() <= 3 || isWhitespaceOnly(_code);
+    if (isEmpty) {
       std::string error =
-          "Failed to create Worklet, the provided code is empty. Tips:\n"
-          "* Is the babel plugin correctly installed?\n"
-          "* If you are using react-native-reanimated, make sure the "
-          "react-native-reanimated plugin does not override the "
-          "react-native-worklets-core/plugin.\n"
-          "* Make sure the JS Worklet contains a \"" +
-          std::string(PropNameWorkletInitDataCode) +
-          "\" property with the function's code.";
+          "Failed to create Worklet, provided code is empty.\n"
+          "* Is the babel plugin installed?\n"
+          "* Did react-native-reanimated override the plugin?\n"
+          "* initData.code must contain the actual worklet function.";
       throw jsi::JSError(runtime, error);
     }
 
-    // 4) Optional closure
-    jsi::Value closure = func->getProperty(runtime, PropNameWorkletClosure);
+    // 3) Closure (new + legacy)
+    jsi::Value closure =
+        func->getProperty(runtime, PropNameWorkletClosure);
+
     if (closure.isUndefined() || closure.isNull()) {
       closure =
           func->getProperty(runtime, PropNameWorkletClosureLegacy);
@@ -381,12 +379,12 @@ private:
 
     if (!closure.isUndefined() && !closure.isNull()) {
       _closureWrapper = JsiWrapper::wrap(runtime, closure);
-    } else {
-      _closureWrapper.reset();
     }
 
-    // 5) Name (optional)
-    auto nameProp = func->getProperty(runtime, PropFunctionName);
+    // 4) Worklet name
+    jsi::Value nameProp =
+        func->getProperty(runtime, PropFunctionName);
+
     if (nameProp.isString()) {
       _name = nameProp.asString(runtime).utf8(runtime);
     } else {
