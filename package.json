@@ -47,7 +47,7 @@
     "ios",
     "android"
   ],
-  "repository": "https://github.com/chrfalch/react-native-worklets-core",
+  "repository": "https://github.com/alexandergx/react-native-worklets-core",
   "author": "Christian Falch <christian.falch@gmail.com> (https://github.com/chrfalch)",
   "contributors": [
     {
@@ -68,9 +68,9 @@
   ],
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/chrfalch/react-native-worklets-core/issues"
+    "url": "https://github.com/alexandergx/react-native-worklets-core/issues"
   },
-  "homepage": "https://github.com/chrfalch/react-native-worklets-core#readme",
+  "homepage": "https://github.com/alexandergx/react-native-worklets-core#readme",
   "publishConfig": {
     "registry": "https://registry.npmjs.org/"
   },
