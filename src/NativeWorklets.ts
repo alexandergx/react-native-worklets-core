@@ -8,7 +8,7 @@ export interface Spec extends TurboModule {
 
 const WorkletsInstaller = TurboModuleRegistry.getEnforcing<Spec>("Worklets");
 
-if (global.Worklets === undefined || global.Worklets == null) {
+if (globalThis.Worklets === undefined || globalThis.Worklets == null) {
   if (
     WorkletsInstaller == null ||
     typeof WorkletsInstaller.install !== "function"
@@ -30,5 +30,4 @@ if (global.Worklets === undefined || global.Worklets == null) {
   console.log("react-native-worklets-core installed.");
 }
 
-// @ts-expect-error It's a global injected by JSI.
-export const Worklets = global.Worklets as IWorkletNativeApi;
+export const Worklets = globalThis.Worklets as IWorkletNativeApi;
