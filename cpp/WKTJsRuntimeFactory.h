@@ -3,10 +3,6 @@
 #include <jsi/jsi.h>
 #include <memory>
 
-#if !ANDROID && !defined(JS_RUNTIME_HERMES) && __has_include(<hermes/hermes.h>)
-#define JS_RUNTIME_HERMES 1
-#endif
-
 #if JS_RUNTIME_HERMES
 // Hermes
 #include <hermes/hermes.h>

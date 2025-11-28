@@ -23,7 +23,6 @@
 
 #include <jsi/jsi.h>
 
-#ifdef ANDROID
 #include <fbjni/fbjni.h>
 #endif
 
@@ -144,9 +143,6 @@ void JsiWorkletContext::invokeOnWorkletThread(
   _workletCallInvoker([fp = std::move(fp), weakSelf = weak_from_this()]() {
     auto self = weakSelf.lock();
     if (self) {
-#ifdef ANDROID
-      facebook::jni::ThreadScope scope;
-#endif
       fp(self.get(), self->getWorkletRuntime());
     }
   });
