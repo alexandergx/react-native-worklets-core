@@ -17,7 +17,6 @@ const globals = new Set([
   "console",
   "performance",
   "_chronoNow",
-  "BigInt",
   "Date",
   "Array",
   "ArrayBuffer",
@@ -30,8 +29,6 @@ const globals = new Set([
   "Uint32Array",
   "Float32Array",
   "Float64Array",
-  "BigInt64Array",
-  "BigUint64Array",
   "Date",
   "HermesInternal",
   "JSON",
@@ -517,7 +514,7 @@ function makeWorklet(t, fun, state) {
   if (sourceMapString) {
     initDataObjectExpression.properties.push(
       t.objectProperty(
-        t.identifier("sourceMap"),
+        t.identifier("__sourceMap"),
         t.stringLiteral(sourceMapString)
       )
     );

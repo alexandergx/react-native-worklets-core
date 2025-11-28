@@ -13,9 +13,12 @@
 #include "WKTJsiHostObject.h"
 #include "WKTJsiWorkletContext.h"
 #include "WKTJsiWrapper.h"
-#include "WKTRuntimeAwareCache.h"
 
 namespace RNWorklet {
+
+#ifndef WKT_LOG
+#define WKT_LOG(fmt, ...) std::printf("[RNWorklets] " fmt "\n", ##__VA_ARGS__)
+#endif
 
 static const char *PropNameWorkletHash = "__workletHash";
 static const char *PropNameWorkletInitData = "__initData";
@@ -24,7 +27,7 @@ static const char *PropNameWorkletInitDataCode = "code";
 static const char *PropNameJsThis = "jsThis";
 
 static const char *PropNameWorkletInitDataLocation = "location";
-static const char *PropNameWorkletInitDataSourceMap = "sourceMap";
+static const char *PropNameWorkletInitDataSourceMap = "__sourceMap";
 
 static const char *PropNameWorkletLocation = "__location";
 static const char *PropNameWorkletAsString = "asString";
@@ -184,6 +187,8 @@ public:
   std::shared_ptr<jsi::Function>
   createWorkletJsFunction(jsi::Runtime &runtime) {
     auto makeNoop = [&runtime, this]() {
+      WKT_LOG("createWorkletJsFunction: returning NO-OP function for '%s'",
+              _location.c_str());
       auto func = jsi::Function::createFromHostFunction(
           runtime,
           jsi::PropNameID::forAscii(runtime, "noopWorklet"),
@@ -202,18 +207,27 @@ public:
     try {
       evaluatedFunction = evaluteJavascriptInWorkletRuntime(runtime, _code);
     } catch (const jsi::JSError &error) {
+      WKT_LOG("createWorkletJsFunction: eval JSError at '%s': %s",
+              _location.c_str(), error.getMessage().c_str());
       return makeNoop();
     }
 
     if (!evaluatedFunction.isObject()) {
+      WKT_LOG("createWorkletJsFunction: eval did not return object at '%s'",
+              _location.c_str());
       return makeNoop();
     }
 
     auto obj = evaluatedFunction.asObject(runtime);
     if (!obj.isFunction(runtime)) {
+      WKT_LOG(
+          "createWorkletJsFunction: eval returned non-function object at '%s'",
+          _location.c_str());
       return makeNoop();
     }
 
+    WKT_LOG("createWorkletJsFunction: created REAL worklet function at '%s'",
+            _location.c_str());
     return std::make_shared<jsi::Function>(obj.asFunction(runtime));
   }
 
@@ -274,11 +288,6 @@ public:
     }
   }
 
-  /**
-   Returns true if the character is a whitespace character
-   */
-  static bool isWhitespace(unsigned char c) { return std::isspace(c); }
-
 private:
   /**
    Installs the worklet function into the worklet runtime
@@ -297,44 +306,39 @@ private:
    * Installs the worklet function into the worklet runtime
    */
   void createWorklet(jsi::Runtime &runtime,
-                    std::shared_ptr<jsi::Function> func) {
+                     std::shared_ptr<jsi::Function> func) {
+
     _isWorklet = false;
     _isRea30Compat = false;
     _code.clear();
     _location.clear();
     _closureWrapper.reset();
 
-    // 1) Try new-style (__initData)
+    // 1) New style: __initData from worklets-core / Reanimated 3
     jsi::Value initDataProp =
         func->getProperty(runtime, PropNameWorkletInitData);
 
     if (initDataProp.isObject()) {
       jsi::Object initDataObj = initDataProp.asObject(runtime);
 
-      // location
       jsi::Value locationProp =
           initDataObj.getProperty(runtime, PropNameWorkletInitDataLocation);
-
-      if (locationProp.isString()) {
-        _location = locationProp.asString(runtime).utf8(runtime);
-      } else {
-        _location = "(unknown)";
-      }
-
-      // code
-      jsi::Value codeProp =
-          initDataObj.getProperty(runtime, PropNameWorkletInitDataCode);
-
-      if (!codeProp.isString()) {
-        // Not a valid worklet
+      if (!locationProp.isString()) {
         return;
       }
+      _location = locationProp.asString(runtime).utf8(runtime);
 
+      jsi::Value codeProp =
+          initDataObj.getProperty(runtime, PropNameWorkletInitDataCode);
+      if (!codeProp.isString()) {
+        return;
+      }
       _code = codeProp.asString(runtime).utf8(runtime);
+
       _isRea30Compat = true;
 
     } else {
-      // 2) Legacy style (__closure + asString)
+      // 2) Legacy style: asString / __location
       jsi::Value asStringProp =
           func->getProperty(runtime, PropNameWorkletAsString);
       jsi::Value locationProp =
@@ -349,29 +353,38 @@ private:
       _isRea30Compat = false;
     }
 
-    // --- Validate code ---
-    auto isWhitespaceOnly = [](const std::string &s) {
-      for (char c : s) {
-        if (!std::isspace((unsigned char)c))
-          return false;
+    WKT_LOG("createWorklet: isRea30Compat=%d location='%s' codeLen=%zu",
+            _isRea30Compat ? 1 : 0, _location.c_str(), _code.size());
+    if (_code.size() > 0) {
+      WKT_LOG("createWorklet code (first 80 chars): %.80s", _code.c_str());
+    }
+    
+    // 3) Validate code length / content, avoid "()" crashes
+    bool isCodeEmpty = true;
+    for (char c : _code) {
+      if (!std::isspace(static_cast<unsigned char>(c))) {
+        isCodeEmpty = false;
+        break;
       }
-      return true;
-    };
-
-    bool isEmpty = _code.size() <= 3 || isWhitespaceOnly(_code);
-    if (isEmpty) {
+    }
+    if (!isCodeEmpty && _code.size() <= 3) {
+      isCodeEmpty = true;
+    }
+    if (isCodeEmpty) {
       std::string error =
-          "Failed to create Worklet, provided code is empty.\n"
-          "* Is the babel plugin installed?\n"
-          "* Did react-native-reanimated override the plugin?\n"
-          "* initData.code must contain the actual worklet function.";
+          "Failed to create Worklet, the provided code is empty. Tips:\n"
+          "* Is the babel plugin correctly installed?\n"
+          "* If you are using react-native-reanimated, make sure the "
+          "react-native-reanimated plugin does not override the "
+          "react-native-worklets-core/plugin.\n"
+          "* Make sure the JS Worklet contains a \"" +
+          std::string(PropNameWorkletInitDataCode) +
+          "\" property with the function's code.";
       throw jsi::JSError(runtime, error);
     }
 
-    // 3) Closure (new + legacy)
-    jsi::Value closure =
-        func->getProperty(runtime, PropNameWorkletClosure);
-
+    // 4) Optional closure
+    jsi::Value closure = func->getProperty(runtime, PropNameWorkletClosure);
     if (closure.isUndefined() || closure.isNull()) {
       closure =
           func->getProperty(runtime, PropNameWorkletClosureLegacy);
@@ -379,12 +392,12 @@ private:
 
     if (!closure.isUndefined() && !closure.isNull()) {
       _closureWrapper = JsiWrapper::wrap(runtime, closure);
+    } else {
+      _closureWrapper.reset();
     }
 
-    // 4) Worklet name
-    jsi::Value nameProp =
-        func->getProperty(runtime, PropFunctionName);
-
+    // 5) Name (optional)
+    auto nameProp = func->getProperty(runtime, PropFunctionName);
     if (nameProp.isString()) {
       _name = nameProp.asString(runtime).utf8(runtime);
     } else {
@@ -405,18 +418,32 @@ private:
     }
 
     if (isEmpty || code.size() <= 3) {
+      WKT_LOG(
+          "evaluteJavascriptInWorkletRuntime: EMPTY/TINY code (len=%zu) at "
+          "'%s', skipping eval",
+          code.size(), _location.c_str());
       return jsi::Value::undefined();
     }
 
     std::string wrappedCode = "(" + code + std::string("\n)");
+
+    WKT_LOG(
+        "evaluteJavascriptInWorkletRuntime: evaluating codeLen=%zu "
+        "wrappedLen=%zu location='%s'",
+        code.size(), wrappedCode.size(), _location.c_str());
 
     auto codeBuffer = std::make_shared<const jsi::StringBuffer>(wrappedCode);
 
     try {
       return runtime.evaluateJavaScript(codeBuffer, _location);
     } catch (const jsi::JSError &error) {
+      WKT_LOG("evaluteJavascriptInWorkletRuntime: JSError at '%s': %s",
+              _location.c_str(), error.getMessage().c_str());
       return jsi::Value::undefined();
     } catch (...) {
+      WKT_LOG(
+          "evaluteJavascriptInWorkletRuntime: UNKNOWN exception at '%s'",
+          _location.c_str());
       return jsi::Value::undefined();
     }
   }
@@ -438,19 +465,58 @@ public:
   WorkletInvoker(jsi::Runtime &runtime, const jsi::Value &value)
       : WorkletInvoker(std::make_shared<JsiWorklet>(runtime, value)) {}
 
+  ~WorkletInvoker() {
+    if (_workletFunction) {
+      auto tmp = _workletFunction;
+      _workletFunction = nullptr;
+
+      if (_owningContext == nullptr) {
+        JsiWorkletContext::getDefaultInstance()->invokeOnJsThread(
+            [tmp = std::move(tmp)](jsi::Runtime &) mutable { tmp = nullptr; });
+      } else {
+        _owningContext->invokeOnWorkletThread(
+            [tmp = std::move(tmp)](JsiWorkletContext *,
+                                   jsi::Runtime &) mutable { tmp = nullptr; });
+      }
+    }
+  }
+
   jsi::Value call(jsi::Runtime &runtime, const jsi::Value &thisValue,
                   const jsi::Value *arguments, size_t count) {
-    if (_workletFunction.get(runtime) == nullptr) {
-      _workletFunction.get(runtime) =
-          _worklet->createWorkletJsFunction(runtime);
+    if (_workletFunction == nullptr) {
+      WKT_LOG("WorkletInvoker::call: creating worklet function for '%s'",
+              _worklet->getLocation().c_str());
+      _workletFunction = _worklet->createWorkletJsFunction(runtime);
+      auto owningContext = JsiWorkletContext::getCurrent(runtime);
+      if (owningContext) {
+        _owningContext = owningContext->shared_from_this();
+      } else {
+        _owningContext = nullptr;
+      }
     }
-    return _worklet->call(_workletFunction.get(runtime), runtime, thisValue,
-                          arguments, count);
+
+    WKT_LOG("WorkletInvoker::call: invoking worklet '%s'",
+            _worklet->getLocation().c_str());
+
+    try {
+      return _worklet->call(_workletFunction, runtime, thisValue, arguments,
+                            count);
+    } catch (const jsi::JSError &error) {
+      WKT_LOG("WorkletInvoker::call: JSError while invoking '%s': %s",
+              _worklet->getLocation().c_str(), error.getMessage().c_str());
+      return jsi::Value::undefined();
+    } catch (...) {
+      WKT_LOG(
+          "WorkletInvoker::call: UNKNOWN exception while invoking '%s'",
+          _worklet->getLocation().c_str());
+      return jsi::Value::undefined();
+    }
   }
 
 private:
-  RuntimeAwareCache<std::shared_ptr<jsi::Function>> _workletFunction;
+  std::shared_ptr<JsiWorkletContext> _owningContext;
   std::shared_ptr<JsiWorklet> _worklet;
+  std::shared_ptr<jsi::Function> _workletFunction;
 };
 
 } // namespace RNWorklet

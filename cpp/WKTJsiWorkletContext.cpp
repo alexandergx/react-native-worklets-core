@@ -1,7 +1,6 @@
 
 #include "WKTJsiWorkletContext.h"
 #include "WKTJsiWorkletApi.h"
-#include "WKTRuntimeAwareCache.h"
 
 #include "WKTArgumentsWrapper.h"
 #include "WKTDispatchQueue.h"
@@ -71,7 +70,6 @@ void JsiWorkletContext::initialize(
     const std::string &name, jsi::Runtime *jsRuntime,
     std::function<void(std::function<void()> &&)> jsCallInvoker,
     std::function<void(std::function<void()> &&)> workletCallInvoker) {
-
   _name = name;
   _jsRuntime = jsRuntime;
   _jsCallInvoker = jsCallInvoker;
@@ -147,12 +145,9 @@ void JsiWorkletContext::invokeOnWorkletThread(
     auto self = weakSelf.lock();
     if (self) {
 #ifdef ANDROID
-      facebook::jni::ThreadScope::WithClassLoader([fp = std::move(fp), self]() {
-        fp(self.get(), self->getWorkletRuntime());
-      });
-#else
-      fp(self.get(), self->getWorkletRuntime());
+      facebook::jni::ThreadScope scope;
 #endif
+      fp(self.get(), self->getWorkletRuntime());
     }
   });
 }
@@ -343,7 +338,7 @@ JsiWorkletContext::createCallInContext(jsi::Runtime &runtime,
           // Create callback wrapper
           callIntoCorrectContext([callback, workletInvoker, thisWrapper,
                                   argsWrapper, promise,
-                                  func](jsi::Runtime &runtime) mutable {
+                                  func](jsi::Runtime &runtime) {
             try {
 
               auto args = argsWrapper.getArguments(runtime);
@@ -399,10 +394,6 @@ JsiWorkletContext::createCallInContext(jsi::Runtime &runtime,
                                     runtime, "Unknown error in promise."));
               });
             }
-            
-            // We need to explicitly clear the func shared pointer here to avoid it being
-            // deleted on another thread
-            promise = nullptr;
           });
         });
 
@@ -434,22 +425,20 @@ JsiWorkletContext::createInvoker(jsi::Runtime &runtime,
     if (ctx != nullptr) {
       // We are on a worklet thread
       ctx->invokeOnWorkletThread(
-          [argsWrapper, rtPtr, func = std::move(func)](JsiWorkletContext *,
-                                     jsi::Runtime &runtime) mutable {
+          [argsWrapper, rtPtr, func](JsiWorkletContext *,
+                                     jsi::Runtime &runtime) {
             assert(&runtime == rtPtr && "Expected same runtime ptr!");
             auto args = argsWrapper.getArguments(runtime);
             func->call(runtime, ArgumentsWrapper::toArgs(args),
                        argsWrapper.getCount());
-            func = nullptr;
           });
     } else {
       JsiWorkletContext::getDefaultInstance()->invokeOnJsThread(
-          [argsWrapper, rtPtr, func = std::move(func)](jsi::Runtime &runtime) mutable {
+          [argsWrapper, rtPtr, func = std::move(func)](jsi::Runtime &runtime) {
             assert(&runtime == rtPtr && "Expected same runtime ptr!");
             auto args = argsWrapper.getArguments(runtime);
             func->call(runtime, ArgumentsWrapper::toArgs(args),
                        argsWrapper.getCount());
-            func = nullptr;
           });
     }
 

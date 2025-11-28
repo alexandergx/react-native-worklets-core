@@ -13,7 +13,7 @@ import com.facebook.react.turbomodule.core.interfaces.TurboModule;
 import java.util.HashMap;
 import java.util.Map;
 
-public class WorkletsCorePackage extends TurboReactPackage {
+public class WorkletsPackage extends TurboReactPackage {
 
   @Nullable
   @Override

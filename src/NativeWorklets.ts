@@ -1,6 +1,5 @@
 import type { TurboModule } from "react-native";
 import { TurboModuleRegistry } from "react-native";
-import type { IWorkletNativeApi } from "./types";
 
 export interface Spec extends TurboModule {
   install(): boolean;
@@ -8,7 +7,9 @@ export interface Spec extends TurboModule {
 
 const WorkletsInstaller = TurboModuleRegistry.getEnforcing<Spec>("Worklets");
 
-if (globalThis.Worklets === undefined || globalThis.Worklets == null) {
+console.log("Loading react-native-worklets-core...");
+
+if (global.Worklets === undefined || global.Worklets == null) {
   if (
     WorkletsInstaller == null ||
     typeof WorkletsInstaller.install !== "function"
@@ -24,10 +25,10 @@ if (globalThis.Worklets === undefined || globalThis.Worklets == null) {
       console.error(
         `Native Worklets Module failed to correctly install JSI Bindings! Result: ${result}`
       );
+    } else {
+      console.log("Worklets loaded successfully");
     }
   }
 } else {
   console.log("react-native-worklets-core installed.");
 }
-
-export const Worklets = globalThis.Worklets as IWorkletNativeApi;
